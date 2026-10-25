@@ -1,0 +1,14 @@
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!server/
+!server/**
+!lib/
+!lib/**
+!migrations/
+!migrations/**
+!public/
+!public/**
+!tests/
+!tests/**

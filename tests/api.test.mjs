@@ -1,14 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile,readdir} from 'node:fs/promises';
-import {Miniflare} from 'miniflare';
+import {SQLiteDatabase} from '../server/database.mjs';
 import {handleApi} from '../lib/api.mjs';
-const A={id:'test-alice',email:'alice@example.test',name:'Alice'},B={id:'test-bob',email:'bob@example.test',name:'Bob'};
+const A={id:'test-alice',email:'alice@example.test',name:'Alice',isAdmin:true},B={id:'test-bob',email:'bob@example.test',name:'Bob'};
 const mid='metro-spb-2026';
-const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-05-15',d1Databases:['DB'],cf:false});
-const db=await mf.getD1Database('DB');
-for(const file of (await readdir(new URL('../drizzle/',import.meta.url))).filter(f=>f.endsWith('.sql')).sort()){const sql=await readFile(new URL('../drizzle/'+file,import.meta.url),'utf8');await db.batch(sql.split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));}
-const env={DB:db,ADMIN_EMAIL:A.email};
+const db=new SQLiteDatabase();db.migrate();
+const env={DB:db};
 async function call(path,user=A,input,method=input?'POST':'GET'){
  const req=new Request('https://test.local/api/'+path,{method,headers:input?{'Content-Type':'application/json','Origin':'https://test.local'}:{},body:input?JSON.stringify(input):undefined});
  const res=await handleApi(req,env,user);return {status:res.status,...await res.json()};
@@ -26,7 +23,7 @@ async function invariants(){
  const system=await db.prepare("SELECT SUM(delta_cents) AS net FROM ledger WHERE kind != 'welcome'").first();
  assert.equal(market.reserve_cents,693148-(system.net??0));assert.ok(market.reserve_cents>=0);
 }
-test('D1-backed API integration',async t=>{
+test('SQLite-backed market integration',async t=>{
  try{
  await t.test('separate accounts, initial credit once, real price and history, portfolio persistence',async()=>{
   await reset();const initial=await call('bootstrap',A,{});assert.equal(initial.user.balanceCents,1000000);assert.equal(initial.user.isAdmin,true);assert.equal(initial.markets[0].probability,.5);
@@ -78,5 +75,5 @@ test('D1-backed API integration',async t=>{
   s=await call('state',A);const trade=s.trades[0];assert.equal(s.user.balanceCents,trade?1000000-trade.cash_cents+trade.units*10:1000000);await invariants();
   await reset();await db.prepare('UPDATE markets SET closes_at=0 WHERE id=?').bind(mid).run();assert.equal((await call('quote',A,{side:'yes',action:'buy',amountCents:1000})).status,409);
  });
- }finally{await mf.dispose();}
+ }finally{db.close();}
 });
