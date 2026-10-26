@@ -33,6 +33,24 @@ test('standalone HTTP authentication, trading and persistent storage',async t=>{
   assert.equal((await call('/api/state',{headers:{'oai-authenticated-user-id':'forged','oai-authenticated-user-email':'admin@test.local'}})).status,401);
   assert.equal((await call('/server/auth.mjs')).status,404);
  });
+ await t.test('guests can browse every event, history and buy estimate without creating an account',async()=>{
+  const catalog=await call('/api/markets');assert.equal(catalog.status,200);assert.equal(catalog.body.markets.length,12);
+  assert.equal((await call('/api/session')).body.authenticated,false);
+  for(const m of catalog.body.markets){
+   assert.ok(!['reserve_cents','q_yes','q_no','email','balance_cents'].some(k=>k in m));
+   const detail=await call('/api/markets/'+m.id);assert.equal(detail.status,200);assert.equal(detail.body.market.id,m.id);assert.ok(detail.body.market.rules.length>50);assert.ok(detail.body.market.sourceUrl.startsWith('https://'));
+   const h=await call('/api/history?marketId='+m.id);assert.equal(h.status,200);assert.equal(h.body.points.length,1);assert.equal(h.body.points[0].probability,.5);
+   const q=await call('/api/quote?marketId='+m.id+'&side=yes&amountCents=100000');assert.equal(q.status,200);assert.equal(q.body.marketId,m.id);assert.equal(q.body.balanceAfterCents,null);assert.ok(q.body.probabilityAfter>.5);
+  }
+  assert.equal((await app.db.prepare('SELECT COUNT(*) AS n FROM users').first()).n,0);assert.equal((await app.db.prepare('SELECT COUNT(*) AS n FROM trades').first()).n,0);
+  const font=await call('/fonts/InterVariable.woff2');assert.equal(font.status,200);assert.equal(font.headers.get('content-type'),'font/woff2');
+ });
+ await t.test('opening public reads does not open private data or write actions',async()=>{
+  for(const endpoint of ['state','quote','trades','profile','resolve','bookmark','bootstrap']){
+   const r=await call('/api/'+endpoint,endpoint==='state'?{}:{body:{},method:endpoint==='profile'?'PATCH':'POST'});assert.equal(r.status,401,endpoint);
+  }
+  assert.equal((await call('/api/markets/not-a-market')).status,404);assert.equal((await call('/api/history?marketId=not-a-market')).status,404);assert.equal((await call('/api/history?period=bad')).status,400);
+ });
  await t.test('email registration, password hashing, cookie session, no client role escalation',async()=>{
   const a=await call('/api/auth/register',{body:{...registration('Alice@Example.test'),isAdmin:true,role:'admin',balanceCents:9999999}});assert.equal(a.status,201,JSON.stringify(a.body));aliceCookie=a.cookie;
   assert.match(a.headers.get('set-cookie'),/HttpOnly/);assert.match(a.headers.get('set-cookie'),/SameSite=Lax/);
@@ -65,6 +83,15 @@ test('standalone HTTP authentication, trading and persistent storage',async t=>{
  await t.test('consistent live SQLite backup contains account and trades',async()=>{
   const destination=join(folder,'snapshot.sqlite');await execute(process.execPath,['server/backup.mjs',destination],{cwd:new URL('../',import.meta.url),env:{...process.env,DATABASE_PATH:databasePath}});
   const backup=new DatabaseSync(destination,{readOnly:true});try{assert.equal(backup.prepare('SELECT COUNT(*) AS n FROM trades').get().n,1);assert.equal(backup.prepare('SELECT balance_cents FROM users WHERE id=?').get(aliceId).balance_cents,aliceBalance);}finally{backup.close();}
+ });
+ await t.test('a trade affects only its own event, and guests see its real history',async()=>{
+  const before=(await call('/api/markets')).body.markets;const original=before.find(m=>m.id==='metro-spb-2026');const second=before.find(m=>m.id==='btc-150k-2026');
+  const q=await call('/api/quote',{cookie:bobCookie,body:{marketId:second.id,side:'no',action:'buy',amountCents:75000}});assert.equal(q.status,200);
+  const trade=await call('/api/trades',{cookie:bobCookie,body:order(q.body)});assert.equal(trade.status,200);
+  const after=(await call('/api/markets')).body.markets;assert.equal(after.find(m=>m.id===original.id).probability,original.probability);assert.ok(after.find(m=>m.id===second.id).probability<.5);
+  const history=await call('/api/history?marketId='+second.id);assert.equal(history.status,200);assert.equal(history.body.points.length,2);assert.equal(history.body.points[1].probability,trade.body.trade.probability_after);
+  const b=await call('/api/state',{cookie:bobCookie});assert.equal(b.body.positions.length,1);assert.equal(b.body.positions[0].market_id,second.id);
+  const a=await call('/api/state',{cookie:aliceCookie});assert.equal(a.body.positions.length,1);assert.equal(a.body.positions[0].market_id,original.id);
  });
  await t.test('password change logs out every session; logout revokes the token',async()=>{
   const second=await call('/api/auth/login',{body:registration('alice@example.test')});assert.equal(second.status,200);

@@ -11,7 +11,7 @@ const headers={
 const json=(object,status=200,extra={})=>new Response(JSON.stringify(object),{status,headers:{...headers,...extra}});
 const files=new Map([
  ['/', ['market.html','text/html; charset=utf-8']],['/market.html',['market.html','text/html; charset=utf-8']],
- ['/app.js',['app.js','text/javascript; charset=utf-8']],['/styles.css',['styles.css','text/css; charset=utf-8']],['/favicon.svg',['favicon.svg','image/svg+xml']]
+ ['/fonts/InterVariable.woff2',['fonts/InterVariable.woff2','font/woff2']],['/app.js',['app.js','text/javascript; charset=utf-8']],['/styles.css',['styles.css','text/css; charset=utf-8']],['/favicon.svg',['favicon.svg','image/svg+xml']]
 ]);
 async function payload(req){
  const chunks=[];let size=0;
