@@ -43,6 +43,7 @@ test('standalone HTTP authentication, trading and persistent storage',async t=>{
    const q=await call('/api/quote?marketId='+m.id+'&side=yes&amountCents=100000');assert.equal(q.status,200);assert.equal(q.body.marketId,m.id);assert.equal(q.body.balanceAfterCents,null);assert.ok(q.body.probabilityAfter>.5);
   }
   assert.equal((await app.db.prepare('SELECT COUNT(*) AS n FROM users').first()).n,0);assert.equal((await app.db.prepare('SELECT COUNT(*) AS n FROM trades').first()).n,0);
+  for(const [period,duration] of Object.entries({'5m':300000,'1h':3600000,'6h':21600000,'1d':86400000,'1w':604800000,'1m':2592000000,'3m':7776000000})){const result=await call('/api/history?marketId=metro-spb-2026&period='+period);assert.equal(result.status,200);assert.equal(result.body.rangeEnd-result.body.rangeStart,duration);}
   const font=await call('/fonts/InterVariable.woff2');assert.equal(font.status,200);assert.equal(font.headers.get('content-type'),'font/woff2');
  });
  await t.test('opening public reads does not open private data or write actions',async()=>{

@@ -11,6 +11,7 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3101}
       DATABASE_PATH: /data/ishod.sqlite
       TRUST_PROXY: "true"
+      SIMULATION_ENABLED: ${SIMULATION_ENABLED:-true}
     volumes:
       - ishod-data:/data
     restart: unless-stopped

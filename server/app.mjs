@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { SQLiteDatabase } from './database.mjs';
 import { identify, register, login, logout, changePassword, HttpError } from './auth.mjs';
 import { handleApi, seedMarket } from '../lib/api.mjs';
+import { createSimulation } from './simulation.mjs';
+import { createLiveStream } from './live-stream.mjs';
 const headers={
  'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
  'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY',
@@ -19,13 +21,16 @@ async function payload(req){
  return Buffer.concat(chunks);
 }
 async function readJson(request){try{const b=await request.json();if(!b||typeof b!=='object'||Array.isArray(b))throw new Error();return b;}catch{throw new HttpError(400,'Некорректный JSON.');}}
-export async function createApplication({databasePath=':memory:',origin='http://localhost:3000',secureCookies=new URL(origin).protocol==='https:',trustProxy=false}={}){
+export async function createApplication({databasePath=':memory:',origin='http://localhost:3000',secureCookies=new URL(origin).protocol==='https:',trustProxy=false,simulation=false,simulationOptions={}}={}){
  const appOrigin=new URL(origin);if(!['http:','https:'].includes(appOrigin.protocol)||appOrigin.origin!==origin)throw new Error('APP_ORIGIN must be an HTTP(S) origin without a path or trailing slash');
  const db=new SQLiteDatabase(databasePath);db.migrate();await seedMarket(db);
+ const simulator=simulation?await createSimulation(db,simulationOptions):null;
+ const live=createLiveStream(db);
  const server=createServer(async(req,res)=>{
   let response;
   try{
    const url=new URL(req.url,'http://internal');
+   if(url.pathname==='/api/stream'&&req.method==='GET'){await live.connect(req,res);return;}
    if(url.pathname==='/healthz'&&['GET','HEAD'].includes(req.method)){
     db.connection.prepare('SELECT 1').get();response=json({ok:true});
    }else if(url.pathname.startsWith('/api/')){
@@ -65,5 +70,5 @@ export async function createApplication({databasePath=':memory:',origin='http://
   }catch{res.destroy();}
  });
  server.requestTimeout=20000;server.headersTimeout=15000;server.keepAliveTimeout=5000;
- return {server,db,close:()=>new Promise((resolve,reject)=>server.close(error=>{db.close();error?reject(error):resolve();}))};
+ return {server,db,simulator,async close(){await simulator?.close();await live.close();return new Promise((resolve,reject)=>server.close(error=>{db.close();error?reject(error):resolve();}));}};
 }
